@@ -705,8 +705,15 @@ function setM(v,id){g.mult=v;['mS','mD','mT'].forEach(i=>document.getElementById
 function confirmDirect(){const inp=document.getElementById('dInp');const v=parseInt(inp.value);inp.value='';if(isNaN(v)||v<0||v>180)return;applyScore(v)}
 document.getElementById('dInp').addEventListener('keydown',e=>{if(e.key==='Enter')confirmDirect()});
 
+function isDouble(n){return(n>=2&&n<=40&&n%2===0)||n===50;}
 function kT(base){
   if(g.throws.length>=3)return;
+  const prevSum=g.throws.reduce((a,b)=>a+b,0);
+  const remBefore=g.pl[g.cur].score-prevSum;
+  // Count this dart as double attempt if remaining BEFORE this throw is a double
+  if(isDouble(remBefore)){
+    g.pl[g.cur].dblAttempts=(g.pl[g.cur].dblAttempts||0)+1;
+  }
   const v=base===25||base===50?base:base*g.mult;if(v>60)return;
   g.throws.push(v);g.mult=1;resetMult();
   const sum=g.throws.reduce((a,b)=>a+b,0);const rem=g.pl[g.cur].score-sum;
@@ -728,10 +735,7 @@ function applyScore(val){
   p.legDarts=(p.legDarts||0)+3;
   if(val===180)show180();
   if(p.visits.length<=3)p.first9.push(val);
-  // In direct mode, if score <=170, we assume visit = checkout attempt, ask dart# later
-  if(p.score<=170){
-    p.dblAttempts=(p.dblAttempts||0)+3;// conservative: count all 3 darts
-  }
+  // dblAttempts in direct mode: tracked in select501Dart based on dart# chosen
   if(rem===0){
     const coScore=p.score;
     g.hist.push({pi:g.cur,score:p.score,dartsUsed:1});
@@ -751,8 +755,7 @@ function select501Dart(n){
   p.checkoutDarts.push(n);
   p.checkoutScores.push(pendingWinner.checkoutScore);
   p.dblHits=(p.dblHits||0)+1;
-  // Correct dblAttempts: we added 3 conservatively, real count = n darts
-  p.dblAttempts=Math.max(0,(p.dblAttempts||0)-3+n);
+  p.dblAttempts=(p.dblAttempts||0)+1;// direct mode: 1 attempt = the double dart
   const totalLegDarts=p.legDarts;
   pendingWinner=null;
   checkLegWin(p,pi,totalLegDarts);
@@ -776,7 +779,9 @@ function continueAfterLegWin(p,pi){
   } else {
     g.leg++;
     g.pl.forEach(pl=>{pl.score=501;pl.darts=0;pl.rounds=0;pl.legDarts=0;});
-    g.cur=0;g.hist=[];g.throws=[];g.mult=1;
+    g.hist=[];g.throws=[];g.mult=1;
+    // Alternate: winner of previous leg throws first in next leg
+    g.cur=pi;
     updateLegDisplay();render501();
     if(g.pl[g.cur].bot)setTimeout(doBotTurn,900);
   }
@@ -788,17 +793,14 @@ function finishRound(sum,dartsUsed){
   p.legDarts=(p.legDarts||0)+dartsUsed;
   if(sum===180)show180();
   if(p.visits.length<=3)p.first9.push(sum);
-  // Track darts thrown at double: if score was <=170 this visit, all darts count as double attempts
-  if(p.score<=170){
-    p.dblAttempts=(p.dblAttempts||0)+dartsUsed;
-  }
+  // dblAttempts tracked per-dart in kT(); here just track hit
   if(rem===0){
     const coScore=p.score;
     g.hist.push({pi:g.cur,score:p.score,dartsUsed});
     // dartsUsed = exact dart# of double in this visit (T19+D12 = 2)
     p.checkoutDarts.push(dartsUsed);
     p.checkoutScores.push(coScore);
-    p.dblHits=(p.dblHits||0)+1;
+    p.dblHits=(p.dblHits||0)+1; // dblAttempts already counted in kT
     p.score=0;p.darts+=dartsUsed;p.rounds++;
     const pi=g.cur;
     const totalLegDarts=p.legDarts;
@@ -837,11 +839,7 @@ function showWin(p){
     // CHECKOUTS = "hits/darts on double"
     const co=`${dblH}/${dblA}`;
     // Dart distribution on double
-    const d1=pl.checkoutDarts.filter(d=>d===1).length;
-    const d2=pl.checkoutDarts.filter(d=>d===2).length;
-    const d3=pl.checkoutDarts.filter(d=>d===3).length;
-    const dartDist=dblH>0?`1: ${d1}× · 2: ${d2}× · 3: ${d3}×`:'—';
-    return {avg,f9,coRate,co,hf,hs,dartDist,wins:pl.wins||0};
+    return {avg,f9,coRate,co,hf,hs,wins:pl.wins||0};
   }
   const ps=calcStats(p);
   const os=opp?calcStats(opp):null;
@@ -868,7 +866,7 @@ function showWin(p){
     ['CHECKOUTS',      ps.co,  os?.co],
     ['HIGHEST FINISH', ps.hf,  os?.hf],
     ['HIGHEST SCORE',  ps.hs,  os?.hs],
-    ['DARTS ON DOUBLE', ps.dartDist, os?.dartDist],
+
   ];
   const rowsHtml=rows.map(([lbl,v1,v2])=>`
     <div style="display:flex;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)">
