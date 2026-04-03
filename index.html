@@ -333,7 +333,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;bac
           <div class="mc-arrow">›</div>
         </div>
       </div>
-          <button class="install-menu-btn" id="installMenuBtn" onclick="installApp()" style="display:none">
+          <button class="install-menu-btn" id="installMenuBtn" onclick="installApp()">
         📲 Instaliraj DartVader™
       </button>
       <div style="text-align:center;padding:12px 0 8px;color:var(--text3);font-size:12px;letter-spacing:1px">
@@ -372,6 +372,14 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;bac
           <div class="prow" data-pi="1"><div class="pdot" style="background:#3b9eff"></div><input class="field pname-field" id="n2" placeholder="Igrač 2" value="Igrač 2" oninput="saveName('n2')"><button onclick="removePlayer(1)" style="background:rgba(232,66,58,.15);border:1px solid rgba(232,66,58,.3);border-radius:8px;padding:6px 10px;color:var(--red);cursor:pointer;font-size:16px;flex-shrink:0" title="Ukloni">✕</button></div>
         </div>
         <button onclick="addPlayer501()" style="width:100%;background:var(--bg);border:1.5px dashed var(--border2);border-radius:10px;padding:10px;color:var(--text2);cursor:pointer;font-size:14px;font-weight:600;margin-top:8px;transition:all .2s" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">+ Dodaj igrača</button>
+      </div>
+      <div class="card" id="firstThrowCard">
+        <div class="card-title">KO PRVI BACA</div>
+        <div class="pills" id="firstPills">
+          <div class="pill on" id="ft0" onclick="setFirst(0)">Igrač 1</div>
+          <div class="pill" id="ft1" onclick="setFirst(1)">Igrač 2</div>
+          <div class="pill" id="ftR" onclick="setFirst(-1)">🎲 Nasumično</div>
+        </div>
       </div>
       <div class="card hidden" id="botCard">
         <div class="card-title">TVOJE IME</div>
@@ -601,7 +609,7 @@ function botRound(score,d){
 }
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
-let op='human',diff=0,legs=1;
+let op='human',diff=0,legs=1,firstThrow=0;
 let g501stats={p0:{wins:0,checkoutDarts:[],checkoutScores:[],visits:[],visitsDone:0},p1:{wins:0,checkoutDarts:[],checkoutScores:[],visits:[],visitsDone:0}};
 let pendingWinner=null;
 let g={pl:[],cur:0,hist:[],im:'direct',mult:1,throws:[]};
@@ -612,10 +620,18 @@ function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classL
 function goHome(){document.querySelectorAll('.overlay').forEach(o=>o.classList.remove('show'));showScreen('homeScreen')}
 
 // ─── SETUP 501 ───────────────────────────────────────────────────────────────
-function setOp(o){op=o;document.getElementById('opHuman').classList.toggle('on',o==='human');document.getElementById('opBot').classList.toggle('on',o==='bot');document.getElementById('humanCard').classList.toggle('hidden',o==='bot');document.getElementById('botCard').classList.toggle('hidden',o==='human')}
+function setOp(o){op=o;document.getElementById('opHuman').classList.toggle('on',o==='human');document.getElementById('opBot').classList.toggle('on',o==='bot');document.getElementById('humanCard').classList.toggle('hidden',o==='bot');document.getElementById('botCard').classList.toggle('hidden',o==='human');const fc=document.getElementById('firstThrowCard');if(fc)fc.classList.toggle('hidden',o==='bot');}
 function setDiff(d){diff=d;for(let i=0;i<4;i++)document.getElementById('d'+i).classList.toggle('on',i===d)}
 function setLegs(el,n){legs=n;document.querySelectorAll('#legsPills .pill').forEach(p=>p.classList.remove('on'));el.classList.add('on');const c=document.getElementById('legsCustom');if(c)c.value='';}
 function setLegsCustom(v){const n=parseInt(v);if(n>=1&&n<=99){legs=n;document.querySelectorAll('#legsPills .pill').forEach(p=>p.classList.remove('on'));}}
+function setFirst(n){firstThrow=n;['ft0','ft1','ftR'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.remove('on')});const m=n===0?'ft0':n===1?'ft1':'ftR';document.getElementById(m)?.classList.add('on');}
+function updateFirstPills(){
+  // Update pill labels to match player names
+  const names=getPlayerNames501();
+  const f0=document.getElementById('ft0');const f1=document.getElementById('ft1');
+  if(f0)f0.textContent=names[0]||'Igrač 1';
+  if(f1)f1.textContent=names[1]||'Igrač 2';
+}
 function setR(el,n){g21.totalR=n;document.querySelectorAll('#rPills .pill').forEach(p=>p.classList.remove('on'));el.classList.add('on')}
 function setD(el,n){g21.dartsA=n;document.querySelectorAll('#dPills .pill').forEach(p=>p.classList.remove('on'));el.classList.add('on')}
 
@@ -636,7 +652,11 @@ function start501(){
   }));
   const cLegs=parseInt(document.getElementById('legsCustom')?.value);
   if(cLegs>=1&&cLegs<=99)legs=cLegs;
-  g.cur=0;g.hist=[];g.throws=[];g.mult=1;g.im='direct';g.leg=1;g.legs=legs;
+  // Determine who throws first
+  let startCur=firstThrow===-1?Math.floor(Math.random()*g.pl.length):firstThrow;
+  if(startCur>=g.pl.length)startCur=0;
+  g.legFirstPlayer=startCur;// track who started leg 1
+  g.cur=startCur;g.hist=[];g.throws=[];g.mult=1;g.im='direct';g.leg=1;g.legs=legs;
   pendingWinner=null;
   updateLegDisplay();
   buildKpad('kPad',kT);showScreen('game501');render501();
@@ -780,8 +800,8 @@ function continueAfterLegWin(p,pi){
     g.leg++;
     g.pl.forEach(pl=>{pl.score=501;pl.darts=0;pl.rounds=0;pl.legDarts=0;});
     g.hist=[];g.throws=[];g.mult=1;
-    // Alternate: winner of previous leg throws first in next leg
-    g.cur=pi;
+    // Alternate: each leg rotates starting player from leg 1 starter
+    g.cur=(g.legFirstPlayer+(g.leg-1))%g.pl.length;
     updateLegDisplay();render501();
     if(g.pl[g.cur].bot)setTimeout(doBotTurn,900);
   }
@@ -1342,8 +1362,8 @@ buildKpad('kPad',kT);buildKpad('k121Pad',t121);
   </div>
 </div>
 
-<button class="install-btn" id="installBtn" onclick="installApp()">
-  ⬇ Preuzmi aplikaciju
+<button class="install-btn show" id="installBtn" onclick="installApp()">
+  📲 Instaliraj
 </button>
 
 <script>
@@ -1365,8 +1385,6 @@ let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  document.getElementById('installBtn').classList.add('show');
-  const mb=document.getElementById('installMenuBtn');if(mb)mb.style.display='flex';
 });
 window.addEventListener('appinstalled', () => {
   document.getElementById('installBtn').classList.remove('show');
@@ -1381,6 +1399,9 @@ function installApp() {
       document.getElementById('installBtn').classList.remove('show');
       const mb=document.getElementById('installMenuBtn');if(mb)mb.style.display='none';
     });
+  } else {
+    // Fallback: show instructions
+    alert('Da instaliraš DartVader™:\n\n📱 iPhone/iPad: Dijeli → Dodaj na početni zaslon\n🤖 Android/Chrome: Izbornik ⋮ → Instalacija aplikacije');
   }
 }
 
