@@ -623,17 +623,36 @@ function getCheckout(n){
 }
 
 // ─── BOT ─────────────────────────────────────────────────────────────────────
-const BOT=[{name:'Bot Početnik',avg:25,std:18,miss:.15},{name:'Bot Srednji',avg:40,std:14,miss:.08},{name:'Bot Napredni',avg:55,std:10,miss:.04},{name:'Bot Pro',avg:65,std:6,miss:.015}];
+// BOT: avg = per visit (3 darts). Per-dart avg = avg/3
+const BOT=[
+  {name:'Bot Početnik', avg:25, std:8,  miss:.18, coChance:.03},
+  {name:'Bot Srednji',  avg:40, std:10, miss:.10, coChance:.12},
+  {name:'Bot Napredni', avg:55, std:11, miss:.05, coChance:.28},
+  {name:'Bot Pro',      avg:70, std:9,  miss:.02, coChance:.52}
+];
 function gauss(m,s){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return m+s*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function botDart(avgPerDart,std,miss){
+  // Returns score for 1 dart (0-60)
+  if(Math.random()<miss)return 0;
+  // Realistic dart scores: mostly singles (1-20), some doubles, some trebles
+  const raw=Math.round(gauss(avgPerDart,std));
+  return Math.max(0,Math.min(60,raw));
+}
 function botRound(score,d){
-  const b=BOT[d];let s=score,total=0;
+  const b=BOT[d];
+  const dartAvg=b.avg/3;// per-dart average
+  let s=score,total=0;
   for(let i=0;i<3;i++){
-    if(Math.random()<b.miss){total+=0;continue}
     let t;
-    if(CO[s]&&Math.random()<[.05,.15,.32,.58][d])t=Math.min(s,60);
-    else t=Math.max(0,Math.min(60,Math.round(gauss(b.avg,b.std))));
+    // Checkout attempt?
+    if(s<=170&&CO[s]&&Math.random()<b.coChance){
+      // Try to checkout: score exactly s
+      t=Math.min(s,60);
+    } else {
+      t=botDart(dartAvg,b.std/Math.sqrt(3),b.miss);
+    }
     const ns=s-t;
-    if(ns<0||ns===1){return total}// bust → lose turn score
+    if(ns<0||ns===1){return total;}// bust
     s=ns;total+=t;
     if(s===0)return total;
   }
@@ -1384,7 +1403,8 @@ function startMic(inputId, btnId, statusId){
 
   micRecognition=new SpeechRec();
   micRecognition.lang='hr-HR';
-  micRecognition.interimResults=false;
+  try{micRecognition.lang='hr-HR';}catch(e){}
+  micRecognition.interimResults=true;
   micRecognition.maxAlternatives=5;
   micRecognition.continuous=false;
 
@@ -1396,30 +1416,42 @@ function startMic(inputId, btnId, statusId){
   };
 
   micRecognition.onresult=(e)=>{
-    // Try all alternatives to find a number
+    // Collect all transcripts (interim + final)
+    let allText='';
+    for(let r=0;r<e.results.length;r++){
+      for(let a=0;a<e.results[r].length;a++){
+        allText+=e.results[r][a].transcript+' ';
+      }
+    }
+    status.textContent='🎤 '+allText.trim();
+    // Only process final results
+    if(!e.results[e.results.length-1].isFinal)return;
     let found=null;
-    for(let i=0;i<e.results[0].length;i++){
-      const transcript=e.results[0][i].transcript.trim();
-      const num=parseSpokenNumber(transcript);
-      if(num!==null&&num>=0&&num<=180){found=num;break;}
+    // Try all alternatives
+    for(let r=0;r<e.results.length;r++){
+      for(let a=0;a<e.results[r].length;a++){
+        const transcript=e.results[r][a].transcript.trim();
+        const num=parseSpokenNumber(transcript);
+        if(num!==null&&num>=0&&num<=180){found=num;break;}
+      }
+      if(found!==null)break;
     }
     if(found!==null){
       inp.value=found;
       btn.classList.remove('listening');
       btn.classList.add('success');
-      status.textContent=`✅ Čuo sam: ${found}`;
+      status.textContent=`✅ ${found}`;
       setTimeout(()=>{
         btn.classList.remove('success');
         status.textContent='';
-        inp.placeholder='';
-        // Auto-confirm
+        inp.placeholder='Ukupno 0–180';
         if(inputId==='dInp')confirmDirect();
         else if(inputId==='d121Inp')confirm121Direct();
-      },600);
+      },500);
     } else {
-      status.textContent='❌ Nisam razumio, pokušaj ponovo';
+      status.textContent='❌ Nisam razumio — pokušaj ponovo';
       btn.classList.remove('listening');
-      setTimeout(()=>status.textContent='',2000);
+      setTimeout(()=>{status.textContent='';},2500);
     }
   };
 
@@ -1445,9 +1477,14 @@ function startMic(inputId, btnId, statusId){
 }
 
 function parseSpokenNumber(text){
-  // Direct number
-  const direct=parseInt(text.replace(/[^0-9]/g,''));
-  if(!isNaN(direct))return direct;
+  if(!text)return null;
+  const t=text.trim().toLowerCase();
+  // Direct digits in text
+  const digMatch=t.match(/\d+/g);
+  if(digMatch){
+    const n=parseInt(digMatch[0]);
+    if(!isNaN(n)&&n>=0&&n<=180)return n;
+  }
 
   // Croatian/English number words
   const words={
