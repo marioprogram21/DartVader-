@@ -751,7 +751,9 @@ function start501(){
     name,score:501,darts:0,rounds:0,
     color:PLAYER_COLORS_501[i]||'#aaa',
     bot:op==='bot'&&i===1,
-    wins:0,checkoutDarts:[],checkoutScores:[],visits:[],first9:[],dblAttempts:0,dblHits:0,legDarts:0
+    wins:0,checkoutDarts:[],checkoutScores:[],visits:[],first9:[],dblAttempts:0,dblHits:0,legDarts:0,
+    // cumulative stats across all legs
+    allVisits:[],allFirst9:[],allCheckoutDarts:[],allCheckoutScores:[],allDblAttempts:0,allDblHits:0
   }));
   const cLegs=parseInt(document.getElementById('legsCustom')?.value);
   if(cLegs>=1&&cLegs<=99)legs=cLegs;
@@ -780,8 +782,11 @@ function render501(){
   const bar=document.getElementById('pBar');bar.innerHTML='';
   g.pl.forEach((p,i)=>{
     const a=i===g.cur;const sc=p.score<=40?'danger':p.score<=100?'warn':'ok';
-    const sc501=501-p.score;
-    const avgStr=p.darts>0?`avg: ${(sc501/p.darts).toFixed(1)}`:'';
+    // Prosjek = ukupno bačeno (svi legovi + trenutni leg) / ukupno strelica
+    const allV=(p.allVisits||[]).concat(p.visits||[]);
+    const totalScored=allV.reduce((a,b)=>a+b,0);
+    const totalDarts=allV.length*3;// svaki visit = 3 strelice
+    const avgStr=totalDarts>0?`avg: ${(totalScored/allV.length).toFixed(1)}`:'';
     const lastV=p.visits&&p.visits.length>0?p.visits[p.visits.length-1]:null;
     const lastVStr=lastV!==null?`Zadnji: ${lastV}`:'';
     const d=document.createElement('div');d.className='ptile'+(a?' active':'')+(p.bot?' bot':'');
@@ -945,6 +950,15 @@ function continueAfterLegWin(p,pi){
     showWin(p);
   } else {
     g.leg++;
+    // Accumulate stats before reset
+    g.pl.forEach(pl=>{
+      pl.allVisits=pl.allVisits.concat(pl.visits);
+      pl.allFirst9=pl.allFirst9.concat(pl.first9);
+      pl.allCheckoutDarts=pl.allCheckoutDarts.concat(pl.checkoutDarts);
+      pl.allCheckoutScores=pl.allCheckoutScores.concat(pl.checkoutScores);
+      pl.allDblAttempts=(pl.allDblAttempts||0)+(pl.dblAttempts||0);
+      pl.allDblHits=(pl.allDblHits||0)+(pl.dblHits||0);
+    });
     // Full reset to 501 for new leg
     g.pl.forEach(pl=>{
       pl.score=501;
@@ -1033,25 +1047,27 @@ function closeBust(){document.getElementById('ovBust').classList.remove('show')}
 function showWin(p){
   const opp=g.pl.find(x=>x!==p);
   function calcStats(pl){
-    const tv=pl.visits.length;
-    const ts=pl.visits.reduce((a,b)=>a+b,0);
-    const hf=pl.checkoutScores.length>0?Math.max(...pl.checkoutScores):'—';
-    const hs=tv>0?Math.max(...pl.visits):'—';
+    // Merge current leg stats with accumulated previous legs
+    const allV=(pl.allVisits||[]).concat(pl.visits);
+    const allF9=(pl.allFirst9||[]).concat(pl.first9);
+    const allCODarts=(pl.allCheckoutDarts||[]).concat(pl.checkoutDarts);
+    const allCOScores=(pl.allCheckoutScores||[]).concat(pl.checkoutScores);
+    const dblA=(pl.allDblAttempts||0)+(pl.dblAttempts||0);
+    const dblH=(pl.allDblHits||0)+(pl.dblHits||0);
+
+    const tv=allV.length;
+    const ts=allV.reduce((a,b)=>a+b,0);
+    const hf=allCOScores.length>0?Math.max(...allCOScores):'—';
+    const hs=tv>0?Math.max(...allV):'—';
     const avg=tv>0?(ts/tv).toFixed(2):'—';
-    const f9v=pl.visits.slice(0,3);
+    const f9v=allF9.slice(0,3);
     const f9=f9v.length>0?(f9v.reduce((a,b)=>a+b,0)/f9v.length).toFixed(2):'—';
-    // CHECKOUT RATE = dblHits / dblAttempts (darts thrown at double)
-    const dblA=pl.dblAttempts||0;
-    const dblH=pl.dblHits||0;
     const coRate=dblA>0?Math.round(dblH/dblA*100)+'%':'0%';
-    // CHECKOUTS = "hits/darts on double"
     const co=`${dblH}/${dblA}`;
-    // Breakdown: 1-dart hits, 2-dart hits, 3-dart hits
-    const d1=pl.checkoutDarts.filter(d=>d===1).length;
-    const d2=pl.checkoutDarts.filter(d=>d===2).length;
-    const d3=pl.checkoutDarts.filter(d=>d===3).length;
+    const d1=allCODarts.filter(d=>d===1).length;
+    const d2=allCODarts.filter(d=>d===2).length;
+    const d3=allCODarts.filter(d=>d===3).length;
     const coBreak=dblH>0?`(${d1}×1dart · ${d2}×2dart · ${d3}×3dart)`:'';
-    // Dart distribution on double
     return {avg,f9,coRate,co,hf,hs,coBreak,wins:pl.wins||0};
   }
   const ps=calcStats(p);
@@ -1762,6 +1778,13 @@ const manifestURL = URL.createObjectURL(manifestBlob);
 document.getElementById('manifest-placeholder').setAttribute('href', manifestURL);
 
 let deferredPrompt = null;
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+
+// On iOS always show install button (no beforeinstallprompt)
+if(isIOS){
+  const mb=document.getElementById('installMenuBtn');
+  if(mb)mb.style.display='flex';
+}
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
@@ -1777,6 +1800,10 @@ window.addEventListener('appinstalled', () => {
   const ib=document.getElementById('installBtn');if(ib)ib.style.display='none';
 });
 function installApp() {
+  if(isIOS){
+    alert('Za instalaciju na iPhone/iPad:\nPritisni Dijeli → Dodaj na početni zaslon');
+    return;
+  }
   if (deferredPrompt) {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then(() => {
