@@ -1614,8 +1614,7 @@ function startMic(inputId, btnId, statusId){
         btn.classList.remove('listening');
         btn.classList.add('success');
         status.textContent='✅ '+found;
-        if(inputId==='dInp')confirmDirect();
-        else if(inputId==='d121Inp')confirm121Direct();
+        // NE confirmira automatski - korisnik sam pritisne OK
         setTimeout(()=>{btn.classList.remove('success');status.textContent='';inp.placeholder='0–180';},1200);
       } else {
         // Nije prepoznat broj, pokaži grešku ali ostani aktivan još malo
